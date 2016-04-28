@@ -1,0 +1,4 @@
+- Work out lazy loading
+- Implement some kind of queue for the images
+- Add admin panel features (what formats to convert...)
+- Implement bulk conversion of all gifs on upload_dir
