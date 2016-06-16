@@ -1,0 +1,12 @@
+{
+    "name": "thenextweb/gifs-no-more",
+    "description": "Replace all GIFs with GIFV (HTML5 Video tags)",
+    "license": "GPLv2",
+    "authors": [
+    {
+        "name": "Julio Foulquie",
+        "email": "julio@thenextweb.com"
+    }
+    ],
+    "require": {}
+}
