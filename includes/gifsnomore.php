@@ -20,6 +20,8 @@ const VIDEO_TYPE_WEBM = 'webm';
 
 class Gifsnomore {
 
+    public static $options_key = 'gifsnomore';
+
     /**
      * The loader that's responsible for maintaining and registering all hooks that power
      * the plugin.
@@ -36,14 +38,18 @@ class Gifsnomore {
      */
     protected $version;
 
-    private $conversion_response_pending_meta_key = 'gifsnomore_conversion_pending';
-
     /**
      * All available video types.
      */
     protected $video_types;
 
     protected $lazy_loading = false;
+
+    protected $options;
+
+    private $debug = false;
+
+
 
     /**
      * Define the core functionality of the plugin.
@@ -65,9 +71,15 @@ class Gifsnomore {
 //             VIDEO_TYPE_OGG,
         ];
 
+        $this->options = get_option(self::$options_key);
+
         $this->load_dependencies();
-//         $this->define_admin_hooks();
+        if ( is_admin() ){ // admin actions
+            $this->define_admin_hooks();
+        }
 //         $this->define_public_hooks();
+
+        $this->retrieve_and_convert_all_posts();
 
     }
 
@@ -96,7 +108,12 @@ class Gifsnomore {
          * The class responsible for defining all actions that occur in the public-facing
          * side of the site.
          */
-        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'public/gifsnomore-public.php';
+//         require_once plugin_dir_path( dirname( __FILE__ ) ) . 'public/gifsnomore-public.php';
+
+        /**
+         * The class responsible for defining all actions that occur in the admin area.
+         */
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'admin/gifsnomore-admin.php';
 
         $this->loader = new Gifsnomore_Loader();
 
@@ -115,7 +132,8 @@ class Gifsnomore {
 
         $this->loader->add_action( 'admin_enqueue_scripts', $plugin_admin, 'enqueue_styles' );
         $this->loader->add_action( 'admin_enqueue_scripts', $plugin_admin, 'enqueue_scripts' );
-
+        $this->loader->add_action( 'admin_menu', $plugin_admin, 'add_plugin_menu' );
+        $this->loader->add_action( 'admin_init', $plugin_admin, 'register_my_settings' );
     }
 
     /**
@@ -178,6 +196,7 @@ class Gifsnomore {
         return $this->version;
     }
 
+
     /**
      * Find all GIF images on the content and replace them with their video equivalent.
      *
@@ -186,7 +205,7 @@ class Gifsnomore {
     public function replace_gifs($content)
     {
         // Leave the feeds since we cannot be sure if they support HTML5 video
-        if (is_feed()) {
+        if (is_feed() || !$this->should_convert_post() ) {
             return $content;
         }
 
@@ -217,7 +236,6 @@ class Gifsnomore {
             }
             $img_class_name = $image->getAttribute('class');
             if (preg_match("/.*\.gif$/", $img_src, $matches)) {
-                error_log("$i Replacing $img_src");
                 $wrapper_clone = $new_video_wrap->cloneNode(true);
                 $wrapper_clone->setAttribute("class", $wrapper_clone->getAttribute('class') . " $img_class_name");
                 foreach($this->video_types as $video_type) {
@@ -252,32 +270,44 @@ class Gifsnomore {
         return $content;
     }
 
-    public function add_attachment($post_id)
+    public function add_attachment($attachment_id)
     {
-        error_log("Add attachment: $post_id");
-        return $this->try_to_convert($post_id);
+        $this->debug("New attachment $attachment_id");
+        return $this->try_to_convert($attachment_id);
     }
 
-    public function edit_attachment($post_id)
+    public function edit_attachment($attachment_id)
     {
-        error_log("Edit attachment $post_id");
-        return $this->try_to_convert($post_id);
+        $this->debug("Editing existing attachment $attachment_id");
+        return $this->try_to_convert($attachment_id);
     }
 
-    public function delete_attachment($post_id)
+    public function delete_attachment($attachment_id)
     {
-        error_log("delete attachment $post_id");
+        $attachment_path = $this->find_attachment_path($attachment_id);
+        if($attachment_path) {
+            $this->debug("Deleting attachment $attachment_id");
+            foreach($this->video_types as $video_type) {
+                $filename = substr($attachment_path, 0, -3) . $video_type;
+                if (is_file($filename)) {
+                    unlink($filename);
+                }
+            }
+        }
     }
 
     private function try_to_convert($attachment_id)
     {
         if ( ! $this->mime_type_check( $attachment_id ) ) {
-            error_log("Mime type did not match!");
+            $this->debug("Mime type did not match for attachtment $attachment_id");
             return;
         }
 
         // Convert and return the result!
-        $this->convert_files($attachment_id);
+        $attachment_path = $this->find_attachment_path($attachment_id);
+        if ($attachment_path) {
+            $this->convert_file($attachment_path);
+        }
     }
 
     /**
@@ -291,17 +321,59 @@ class Gifsnomore {
         return 'image/gif' === get_post_mime_type( $attachment_id );
     }
 
-
-    private function convert_files($attachment_id)
+    public function retrieve_and_convert_all_posts()
     {
-        $attachment_path = $this->find_attachment_path($attachment_id);
-        if($attachment_path) {
-            foreach($this->video_types as $video_type) {
-                $command = realpath(__DIR__."/../bin/gif2$video_type.sh");
-                // TODO: check whether shell_exec is allowed or not
-                $cmd = $this->build_command($command, $attachment_path);
-                $output = shell_exec($cmd);
+        global $wpdb;
+
+        $count = 2;
+        $page_size = 25;
+
+        for ($i=0; $i<= $count; $i= $i+$page_size) {
+            $query = $wpdb->prepare(
+                "SELECT
+                    $wpdb->posts.ID as ID,
+                    $wpdb->posts.guid as guid,
+                    $wpdb->postmeta.meta_value as file_meta
+                    FROM $wpdb->posts
+                    INNER JOIN $wpdb->postmeta ON $wpdb->posts.ID = $wpdb->postmeta.post_id AND $wpdb->postmeta.meta_key = %s
+                    WHERE $wpdb->posts.post_type = %s
+                    AND $wpdb->posts.post_mime_type like %s
+                    ORDER BY `ID` DESC
+                    LIMIT $i, $page_size",
+                array('_wp_attachment_metadata', 'attachment', 'image/gif')
+            );
+
+            $images = $wpdb->get_results($query);
+
+            // Try to convert all images if they are present
+            if ($images) {
+                $this->debug(count($images) . ' images found');
+                $upload_info = wp_upload_dir();
+                $upload_dir = $upload_info['basedir'];
+                foreach($images AS $image) {
+                    $file_meta = unserialize($image->file_meta);
+                    $file_path = $upload_dir . DIRECTORY_SEPARATOR .  $file_meta['file'];
+                    if (is_file($file_path)) {
+                        $this->debug("Converting $file_path");
+                        $this->convert_file($file_path);
+                    }
+                }
             }
+        }
+    }
+
+
+    /**
+     * Given a filepath, convert it to all video types.
+     */
+    private function convert_file($attachment_path)
+    {
+        foreach($this->video_types as $video_type) {
+            $command = realpath(__DIR__."/../bin/gif2$video_type.sh");
+            // TODO: check whether shell_exec is allowed or not
+            $cmd = $this->build_command($command, $attachment_path);
+            $this->debug($cmd);
+            $output = shell_exec($cmd);
         }
     }
 
@@ -331,4 +403,25 @@ class Gifsnomore {
         return "'" .  str_replace("'", "'\"'\"'", $arg) . "'";
     }
 
+    private function should_convert_post() {
+        global $post;
+
+        if ($this->options['transform_all']) {
+            return true;
+        }
+
+        $post_date_ts = strtotime( date("Y-m-d", strtotime($post->post_date)) );
+        $convert_from = strtotime($this->options['from_date']);
+        if ($post_date_ts >= $convert_from) {
+            return true;
+        }
+        return false;
+    }
+
+    public function debug($string)
+    {
+        if($this->debug) {
+            error_log($string);
+        }
+    }
 }
