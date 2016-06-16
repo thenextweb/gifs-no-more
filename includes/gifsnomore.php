@@ -234,6 +234,9 @@ class Gifsnomore {
                 $img_src = $image->getAttribute('data-src');
             }
             $img_class_name = $image->getAttribute('class');
+            if (!$this->lazy_loading) {
+                $img_class_name = str_replace('lazy', '', $img_class_name);
+            }
             if (preg_match("/.*\.gif$/", $img_src, $matches)) {
                 $wrapper_clone = $new_video_wrap->cloneNode(true);
                 $wrapper_clone->setAttribute("class", $wrapper_clone->getAttribute('class') . " $img_class_name");
