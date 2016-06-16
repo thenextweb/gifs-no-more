@@ -49,6 +49,8 @@ class Gifsnomore {
 
     private $debug = false;
 
+    private $max_images_to_convert = 1000;
+
 
 
     /**
@@ -78,9 +80,6 @@ class Gifsnomore {
             $this->define_admin_hooks();
         }
 //         $this->define_public_hooks();
-
-        $this->retrieve_and_convert_all_posts();
-
     }
 
     /**
@@ -325,10 +324,10 @@ class Gifsnomore {
     {
         global $wpdb;
 
-        $count = 2;
+        $max_count = self::$max_images_to_convert;
         $page_size = 25;
 
-        for ($i=0; $i<= $count; $i= $i+$page_size) {
+        for ($i=0; $i<= $max_count; $i= $i+$page_size) {
             $query = $wpdb->prepare(
                 "SELECT
                     $wpdb->posts.ID as ID,
