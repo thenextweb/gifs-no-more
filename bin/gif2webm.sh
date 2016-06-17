@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# TODO: Use timings from .gif instead of doing 1 GIF frame = 1 MP4 frame
-
 set -eu
 
 if (( $# != 1 )); then
@@ -21,6 +19,5 @@ INFILE="${1}"
 OUTFILE="${INFILE%.gif}.webm"
 # Stick the .webm in the same directory as the original .gif, regardless of current directory
 
-# the crop bit is because x264 needs even image dimensions
 # -movflags +faststart allows the video to start playing before being completely loaded
-ffmpeg -i "${INFILE}" -c:v libvpx -an -movflags +faststart -vf 'scale=-2:ih' "${OUTFILE}"
+ffmpeg -i "${INFILE}" -c:v libvpx-vp9 -an -q:v 1 -movflags +faststart "${OUTFILE}"
