@@ -41,9 +41,9 @@ class Gifsnomore {
     /**
      * All available video types.
      */
-    protected $video_types;
+    protected static $video_types;
 
-    protected $lazy_loading = false;
+    protected static $lazy_loading = false;
 
     protected $options;
 
@@ -67,7 +67,7 @@ class Gifsnomore {
         $this->plugin_name = 'gifs-no-more';
         $this->version = '1.0.0';
 
-        $this->video_types = [
+        self::$video_types = [
             VIDEO_TYPE_WEBM,
             VIDEO_TYPE_MP4,
 //             VIDEO_TYPE_OGG,
@@ -208,68 +208,7 @@ class Gifsnomore {
             return $content;
         }
 
-        // Loading post content as a DOM document
-        $dom = new DOMDocument();
-
-        libxml_use_internal_errors(true);// Supresses the XML warnings for HTML bad format
-        $dom->loadHTML('<?xml version="1.0" encoding="UTF-8"?>'.$content);
-
-        // Look for all images
-        $images = $dom->getElementsByTagName('img');
-        // Auxiliary node to be cloned when wrapping images with .alignnone class.
-        $new_video_wrap = $dom->createElement('video');
-        $new_video_wrap->setAttribute('class', 'gifsnomore');
-        $new_video_wrap->setAttribute('autoplay', '');
-        $new_video_wrap->setAttribute('loop', '');
-        $new_video_wrap->setAttribute('muted', '');
-        $source = $dom->createElement('source');
-
-        // in order to modify the array and keep iterating it must be done backwards, @see http://php.net/manual/en/class.domnodelist.php#83390
-        $length = $images->length;
-        for($i = $length-1; $i >= 0; $i--) {
-            $image = $images->item($i);
-            $img_src = $image->getAttribute('src');
-            // Check for lazy loading images
-            if (empty($img_src) or (strpos($img_src, 'data:image') !== false)) {
-                $img_src = $image->getAttribute('data-src');
-            }
-            $img_class_name = $image->getAttribute('class');
-            if (!$this->lazy_loading) {
-                $img_class_name = str_replace('lazy', '', $img_class_name);
-            }
-            if (preg_match("/.*\.gif$/", $img_src, $matches)) {
-                $wrapper_clone = $new_video_wrap->cloneNode(true);
-                $wrapper_clone->setAttribute("class", $wrapper_clone->getAttribute('class') . " $img_class_name");
-                foreach($this->video_types as $video_type) {
-                    $source_clone = $source->cloneNode(true);
-                    $source_clone->setAttribute('type', "video/$video_type");
-                    if ($this->lazy_loading) {
-                        $source_clone->setAttribute('data-src', preg_replace('/gif$/', $video_type, $img_src));
-                    } else {
-                        $source_clone->setAttribute('src', preg_replace('/gif$/', $video_type, $img_src));
-                    }
-                    $wrapper_clone->appendChild($source_clone);
-                }
-                // This breaks the autoloading, TODO: fix it on the JS side
-                if(isset($image->parentNode->tagName) && $image->parentNode->tagName == 'figure') {
-                    $figure_node = $image->parentNode;
-                    $figure_node->parentNode->replaceChild($wrapper_clone, $figure_node);
-                } else {
-                    $image->parentNode->replaceChild($wrapper_clone, $image);
-                }
-            }
-        }
-
-        // DOMDocument creates the whole html structure, but we are only interested in the 'body' tag children.
-        $content = '';
-        $childrenNodes = $dom->getElementsByTagName('body')->item('0')->childNodes;
-        if ($childrenNodes->length != 0) {
-            foreach ($childrenNodes as $child) {
-                $content .= $dom->saveHTML($child);
-            }
-        }
-
-        return $content;
+        return self::find_and_replace_gifs($content);
     }
 
     public function add_attachment($attachment_id)
@@ -289,7 +228,7 @@ class Gifsnomore {
         $attachment_path = $this->find_attachment_path($attachment_id);
         if($attachment_path) {
             $this->debug("Deleting attachment $attachment_id");
-            foreach($this->video_types as $video_type) {
+            foreach(self::$video_types as $video_type) {
                 $filename = substr($attachment_path, 0, -3) . $video_type;
                 if (is_file($filename)) {
                     unlink($filename);
@@ -364,13 +303,78 @@ class Gifsnomore {
         }
     }
 
+    public static function find_and_replace_gifs($content)
+    {
+        // Loading post content as a DOM document
+        $dom = new DOMDocument();
+
+        libxml_use_internal_errors(true);// Supresses the XML warnings for HTML bad format
+        $dom->loadHTML('<?xml version="1.0" encoding="UTF-8"?>'.$content);
+
+        // Look for all images
+        $images = $dom->getElementsByTagName('img');
+        // Auxiliary node to be cloned when wrapping images with .alignnone class.
+        $new_video_wrap = $dom->createElement('video');
+        $new_video_wrap->setAttribute('class', 'gifsnomore');
+        $new_video_wrap->setAttribute('autoplay', '');
+        $new_video_wrap->setAttribute('loop', '');
+        $new_video_wrap->setAttribute('muted', '');
+        $source = $dom->createElement('source');
+
+        // in order to modify the array and keep iterating it must be done backwards, @see http://php.net/manual/en/class.domnodelist.php#83390
+        $length = $images->length;
+        for($i = $length-1; $i >= 0; $i--) {
+            $image = $images->item($i);
+            $img_src = $image->getAttribute('src');
+            // Check for lazy loading images
+            if (empty($img_src) or (strpos($img_src, 'data:image') !== false)) {
+                $img_src = $image->getAttribute('data-src');
+            }
+            $img_class_name = $image->getAttribute('class');
+            if (!self::$lazy_loading) {
+                $img_class_name = str_replace('lazy', '', $img_class_name);
+            }
+            if (preg_match("/.*\.gif$/", $img_src, $matches)) {
+                $wrapper_clone = $new_video_wrap->cloneNode(true);
+                $wrapper_clone->setAttribute("class", $wrapper_clone->getAttribute('class') . " $img_class_name");
+                foreach(self::$video_types as $video_type) {
+                    $source_clone = $source->cloneNode(true);
+                    $source_clone->setAttribute('type', "video/$video_type");
+                    if (self::$lazy_loading) {
+                        $source_clone->setAttribute('data-src', preg_replace('/gif$/', $video_type, $img_src));
+                    } else {
+                        $source_clone->setAttribute('src', preg_replace('/gif$/', $video_type, $img_src));
+                    }
+                    $wrapper_clone->appendChild($source_clone);
+                }
+                // This breaks the autoloading, TODO: fix it on the JS side
+                if(isset($image->parentNode->tagName) && $image->parentNode->tagName == 'figure') {
+                    $figure_node = $image->parentNode;
+                    $figure_node->parentNode->replaceChild($wrapper_clone, $figure_node);
+                } else {
+                    $image->parentNode->replaceChild($wrapper_clone, $image);
+                }
+            }
+        }
+
+        // DOMDocument creates the whole html structure, but we are only interested in the 'body' tag children.
+        $content = '';
+        $childrenNodes = $dom->getElementsByTagName('body')->item('0')->childNodes;
+        if ($childrenNodes->length != 0) {
+            foreach ($childrenNodes as $child) {
+                $content .= $dom->saveHTML($child);
+            }
+        }
+        return $content;
+    }
+
 
     /**
      * Given a filepath, convert it to all video types.
      */
     private function convert_file($attachment_path)
     {
-        foreach($this->video_types as $video_type) {
+        foreach(self::$video_types as $video_type) {
             $command = realpath(__DIR__."/../bin/gif2$video_type.sh");
             // TODO: check whether shell_exec is allowed or not
             $cmd = $this->build_command($command, $attachment_path);
