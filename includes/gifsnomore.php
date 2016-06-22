@@ -21,6 +21,10 @@ const VIDEO_TYPE_WEBM = 'webm';
 class Gifsnomore {
 
     public static $options_key = 'gifsnomore';
+    public static $max_images_to_convert = 1000;
+
+    private static $debug = false;
+    private static $instance;
 
     /**
      * The loader that's responsible for maintaining and registering all hooks that power
@@ -47,9 +51,7 @@ class Gifsnomore {
 
     protected $options;
 
-    private $debug = false;
 
-    private $max_images_to_convert = 1000;
 
 
 
@@ -80,6 +82,7 @@ class Gifsnomore {
             $this->define_admin_hooks();
         }
 //         $this->define_public_hooks();
+
     }
 
     /**
@@ -115,6 +118,11 @@ class Gifsnomore {
         require_once plugin_dir_path( dirname( __FILE__ ) ) . 'admin/gifsnomore-admin.php';
 
         $this->loader = new Gifsnomore_Loader();
+
+        // Load the WP-CLI command
+        if ( defined( 'WP_CLI' ) && WP_CLI ) {
+            require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/gifsnomore-command.php';
+        }
 
     }
 
@@ -213,13 +221,13 @@ class Gifsnomore {
 
     public function add_attachment($attachment_id)
     {
-        $this->debug("New attachment $attachment_id");
+        self::debug("New attachment $attachment_id");
         return $this->try_to_convert($attachment_id);
     }
 
     public function edit_attachment($attachment_id)
     {
-        $this->debug("Editing existing attachment $attachment_id");
+        self::debug("Editing existing attachment $attachment_id");
         return $this->try_to_convert($attachment_id);
     }
 
@@ -227,7 +235,7 @@ class Gifsnomore {
     {
         $attachment_path = $this->find_attachment_path($attachment_id);
         if($attachment_path) {
-            $this->debug("Deleting attachment $attachment_id");
+            self::debug("Deleting attachment $attachment_id");
             foreach(self::$video_types as $video_type) {
                 $filename = substr($attachment_path, 0, -3) . $video_type;
                 if (is_file($filename)) {
@@ -240,7 +248,7 @@ class Gifsnomore {
     private function try_to_convert($attachment_id)
     {
         if ( ! $this->mime_type_check( $attachment_id ) ) {
-            $this->debug("Mime type did not match for attachtment $attachment_id");
+            self::debug("Mime type did not match for attachtment $attachment_id");
             return;
         }
 
@@ -262,25 +270,31 @@ class Gifsnomore {
         return 'image/gif' === get_post_mime_type( $attachment_id );
     }
 
-    public function retrieve_and_convert_all_posts()
+    /**
+     * Find all gifs from posts and try to convert them
+     */
+    public static function retrieve_and_convert_all_posts($limit, $offset)
     {
         global $wpdb;
 
-        $max_count = self::$max_images_to_convert;
-        $page_size = 25;
+        $instance = self::getInstance();
 
-        for ($i=0; $i<= $max_count; $i= $i+$page_size) {
+        $page_size = $limit < 25 ? $limit : 25;
+        $converted = 0;
+
+        for ($i=0; $i< $limit; $i= $i+$page_size) {
+
             $query = $wpdb->prepare(
                 "SELECT
-                    $wpdb->posts.ID as ID,
-                    $wpdb->posts.guid as guid,
-                    $wpdb->postmeta.meta_value as file_meta
-                    FROM $wpdb->posts
-                    INNER JOIN $wpdb->postmeta ON $wpdb->posts.ID = $wpdb->postmeta.post_id AND $wpdb->postmeta.meta_key = %s
-                    WHERE $wpdb->posts.post_type = %s
-                    AND $wpdb->posts.post_mime_type like %s
+                    {$wpdb->posts}.ID as ID,
+                    {$wpdb->posts}.guid as guid,
+                    {$wpdb->postmeta}.meta_value as file_meta
+                    FROM {$wpdb->posts}
+                    INNER JOIN {$wpdb->postmeta} ON {$wpdb->posts}.ID = {$wpdb->postmeta}.post_id AND {$wpdb->postmeta}.meta_key = %s
+                    WHERE {$wpdb->posts}.post_type = %s
+                    AND {$wpdb->posts}.post_mime_type like %s
                     ORDER BY `ID` DESC
-                    LIMIT $i, $page_size",
+                    LIMIT " . ($i+$offset) . ", $page_size",
                 array('_wp_attachment_metadata', 'attachment', 'image/gif')
             );
 
@@ -288,19 +302,21 @@ class Gifsnomore {
 
             // Try to convert all images if they are present
             if ($images) {
-                $this->debug(count($images) . ' images found');
+                self::debug(count($images) . ' images found');
                 $upload_info = wp_upload_dir();
                 $upload_dir = $upload_info['basedir'];
                 foreach($images AS $image) {
                     $file_meta = unserialize($image->file_meta);
                     $file_path = $upload_dir . DIRECTORY_SEPARATOR .  $file_meta['file'];
                     if (is_file($file_path)) {
-                        $this->debug("Converting $file_path");
-                        $this->convert_file($file_path);
+                        self::debug("Converting $file_path");
+                        $instance->convert_file($file_path);
+                        $converted++;
                     }
                 }
             }
         }
+        return $converted;
     }
 
     public static function find_and_replace_gifs($content)
@@ -368,6 +384,24 @@ class Gifsnomore {
         return $content;
     }
 
+    public static function enable_debug()
+    {
+        self::$debug = true;
+    }
+
+    public static function disable_debug()
+    {
+        self::$debug = false;
+    }
+
+    private static function getInstance()
+    {
+        if (empty(self::$instance)) {
+            self::$instance = new Gifsnomore;
+        }
+        return self::$instance;
+    }
+
 
     /**
      * Given a filepath, convert it to all video types.
@@ -378,7 +412,7 @@ class Gifsnomore {
             $command = realpath(__DIR__."/../bin/gif2$video_type.sh");
             // TODO: check whether shell_exec is allowed or not
             $cmd = $this->build_command($command, $attachment_path);
-            $this->debug($cmd);
+            self::debug($cmd);
             $output = shell_exec($cmd);
         }
     }
@@ -424,9 +458,9 @@ class Gifsnomore {
         return false;
     }
 
-    public function debug($string)
+    public static function debug($string)
     {
-        if($this->debug) {
+        if(self::$debug) {
             error_log($string);
         }
     }
