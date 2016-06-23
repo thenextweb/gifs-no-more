@@ -70,8 +70,8 @@ class Gifsnomore {
         $this->version = '1.0.0';
 
         self::$video_types = [
-            VIDEO_TYPE_WEBM,
             VIDEO_TYPE_MP4,
+//             VIDEO_TYPE_WEBM,
 //             VIDEO_TYPE_OGG,
         ];
 
