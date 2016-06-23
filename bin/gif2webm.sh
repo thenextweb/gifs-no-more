@@ -19,5 +19,7 @@ INFILE="${1}"
 OUTFILE="${INFILE%.gif}.webm"
 # Stick the .webm in the same directory as the original .gif, regardless of current directory
 
+# -y will overwrite all existing files without asking
 # -movflags +faststart allows the video to start playing before being completely loaded
-ffmpeg -i "${INFILE}" -c:v libvpx-vp9 -an -q:v 1 -movflags +faststart "${OUTFILE}"
+# livpx-vp9 is not well supported yet and it produces errors on FF (corrupt video) and Chrome (wrong colorspace), newer versions of ffmpeg shoud fix this problem, see https://trac.ffmpeg.org/ticket/5249
+ffmpeg -i "${INFILE}" -y -c:v libvpx -an -q:v 1  -movflags +faststart "${OUTFILE}"
