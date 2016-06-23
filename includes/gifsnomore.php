@@ -277,7 +277,7 @@ class Gifsnomore {
     {
         global $wpdb;
 
-        $instance = self::getInstance();
+        $instance = self::get_instance();
 
         $page_size = $limit < 25 ? $limit : 25;
         $converted = 0;
@@ -394,7 +394,7 @@ class Gifsnomore {
         self::$debug = false;
     }
 
-    private static function getInstance()
+    public static function get_instance()
     {
         if (empty(self::$instance)) {
             self::$instance = new Gifsnomore;
@@ -443,7 +443,7 @@ class Gifsnomore {
         return "'" .  str_replace("'", "'\"'\"'", $arg) . "'";
     }
 
-    private function should_convert_post() {
+    public function should_convert_post() {
         global $post;
 
         if ($this->options['transform_all']) {
