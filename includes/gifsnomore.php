@@ -363,13 +363,8 @@ class Gifsnomore {
                     }
                     $wrapper_clone->appendChild($source_clone);
                 }
-                // This breaks the autoloading, TODO: fix it on the JS side
-                if(isset($image->parentNode->tagName) && $image->parentNode->tagName == 'figure') {
-                    $figure_node = $image->parentNode;
-                    $figure_node->parentNode->replaceChild($wrapper_clone, $figure_node);
-                } else {
-                    $image->parentNode->replaceChild($wrapper_clone, $image);
-                }
+                // Replace the image tag with the video tag
+                $image->parentNode->replaceChild($wrapper_clone, $image);
             }
         }
 
