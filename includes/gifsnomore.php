@@ -343,14 +343,15 @@ class Gifsnomore {
             $image = $images->item($i);
             $img_src = $image->getAttribute('src');
             // Check for lazy loading images
-            if (empty($img_src) or (strpos($img_src, 'data:image') !== false)) {
+            if (empty($img_src) or (mb_strpos($img_src, 'data:image') !== false)) {
                 $img_src = $image->getAttribute('data-src');
             }
             $img_class_name = $image->getAttribute('class');
             if (!self::$lazy_loading) {
                 $img_class_name = str_replace('lazy', '', $img_class_name);
             }
-            if (preg_match("/.*\.gif$/", $img_src, $matches)) {
+            // Only match gif on our own domains
+            if (preg_match("#(?:https://(?:cdn\d\.tnwcdn\.com|thenextweb\.com))?/.*\.gif$#", $img_src, $matches)) {
                 $wrapper_clone = $new_video_wrap->cloneNode(true);
                 $wrapper_clone->setAttribute("class", $wrapper_clone->getAttribute('class') . " $img_class_name");
                 foreach(self::$video_types as $video_type) {
